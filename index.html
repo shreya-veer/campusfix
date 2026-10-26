@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CampusFix - Campus Issue Tracker</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Arial,sans-serif;background:#f1f5f9;color:#0f172a}
+header{background:#0f172a;color:#fff;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 16px;position:sticky;top:0;z-index:5}
+header b{font-size:21px;color:#38bdf8;margin-right:auto}
+button{background:#0ea5e9;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer;font-weight:600}
+button.sec{background:#e2e8f0;color:#0f172a}button.red{background:#ef4444}button.grn{background:#22c55e}
+header button{background:transparent;border:1px solid #475569}header button.on{background:#0ea5e9;border-color:#0ea5e9}
+main{max-width:900px;margin:16px auto;padding:0 12px}
+input,select,textarea{padding:9px;border:1px solid #cbd5e1;border-radius:6px;font:inherit;width:100%}
+.bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}.bar input{flex:1;min-width:160px;width:auto}.bar select{width:auto}
+.box{background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 3px #0002}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.muted{color:#64748b;font-size:13px}
+.tag{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;font-weight:700;color:#fff}
+.Open{background:#ef4444}.InProgress{background:#f59e0b}.Resolved{background:#22c55e}
+.issue{display:flex;gap:12px;cursor:pointer}.vote{min-width:54px;text-align:center}
+.vote button{padding:6px 10px;background:#e2e8f0;color:#0f172a}.vote button.on{background:#0ea5e9;color:#fff}
+#modal{position:fixed;inset:0;background:#0007;display:none;align-items:center;justify-content:center;z-index:9;padding:12px}
+#modal>div{background:#fff;border-radius:12px;padding:18px;max-width:500px;width:100%;max-height:90vh;overflow:auto}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:8px;display:none;z-index:99}
+.auth{max-width:400px;margin:40px auto}label{display:block;margin:10px 0 4px;font-weight:600;font-size:14px}
+.cm{background:#f1f5f9;border-radius:8px;padding:6px 10px;margin:4px 0}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}.stat{text-align:center;font-size:30px;font-weight:800}
+.bk{background:#e2e8f0;border-radius:6px;height:14px;margin:3px 0}.bk i{display:block;height:14px;background:#0ea5e9;border-radius:6px}
+</style></head><body>
+<div id="app"></div><div id="modal" onclick="if(event.target==this)closeM()"><div id="mbox"></div></div><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);
+const L=(k,d)=>{try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}};
+const S=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const CATS=['Wi-Fi / Internet','Water / Plumbing','Electricity','Cleanliness','Classroom / Furniture','Hostel','Canteen','Safety','Other'];
+const ST=['Open','In Progress','Resolved'];
+const cls=s=>s.replace(' ','');
+let users=L('cf_users',null),issues=L('cf_issues',null),me=L('cf_me',null);
+let view='feed',A={tab:'login',type:'college'},F={q:'',cat:'all',st:'all',sort:'votes'};
+if(!users){users={admin:{id:'admin',name:'College Admin',pass:btoa('admin123'),type:'college',college:'Demo College',role:'admin'},
+demo1:{id:'demo1',name:'Aarav Sharma',pass:btoa('demo123'),type:'college',college:'Demo College',role:'student'},
+demo2:{id:'demo2',name:'Priya Verma',pass:btoa('demo123'),type:'college',college:'Demo College',role:'student'}};S('cf_users',users)}
+const mk=(title,cat,loc,desc,by,st,votes)=>({id:uid(),title,cat,loc,desc,by,status:st,votes,comments:[],t:Date.now()-Math.random()*5e8});
+if(!issues){issues=[mk('Wi-Fi not working in library','Wi-Fi / Internet','Library, 2nd floor','No signal since 3 days.','demo1','Open',['demo1','demo2']),
+mk('Water cooler empty near Block B','Water / Plumbing','Block B corridor','Cooler has no water since Monday.','demo2','In Progress',['demo2']),
+mk('Broken benches in Room 204','Classroom / Furniture','Room 204','3 benches broken, students standing.','demo1','Open',['demo1']),
+mk('Streetlight not working at hostel gate','Electricity','Boys hostel gate','Dark at night, unsafe.','demo2','Resolved',['demo1','demo2'])];S('cf_issues',issues)}
+const save=()=>{S('cf_users',users);S('cf_issues',issues);S('cf_me',me)};
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';clearTimeout(t.h);t.h=setTimeout(()=>t.style.display='none',2500)};
+const openM=h=>{$('#mbox').innerHTML=h;$('#modal').style.display='flex'};
+const closeM=()=>{$('#modal').style.display='none'};
+const uname=i=>users[i]?users[i].name:i;
+const isAdmin=()=>me&&users[me]&&users[me].role=='admin';
+const date=t=>new Date(t).toLocaleDateString();
+
+/* AUTH */
+function authHTML(){const c=A.type=='college',s=A.tab=='signup';
+return `<div class="auth box"><h2 style="margin-top:0">🛠️ CampusFix</h2><p class="muted">Report campus problems. Upvote. Track until fixed.</p>
+<div class="row"><button class="${A.tab=='login'?'':'sec'}" onclick="A.tab='login';render()">Login</button><button class="${s?'':'sec'}" onclick="A.tab='signup';render()">Sign up</button></div>
+<div class="row" style="margin-top:10px"><label><input type="radio" style="width:auto" ${c?'checked':''} onclick="A.type='college';render()"> College ID</label>
+<label><input type="radio" style="width:auto" ${!c?'checked':''} onclick="A.type='external';render()"> Other ID (no college)</label></div>
+${s?`<label>Full name</label><input id="a_name">`:''}
+<label>${c?'College ID / Roll No':'Email or phone'}</label><input id="a_id" autocapitalize="off">
+${s&&c?`<label>College name</label><input id="a_col">`:''}
+<label>Password</label><input id="a_pw" type="password" onkeydown="if(event.key=='Enter')${s?'signup()':'login()'}">
+<p><button onclick="${s?'signup()':'login()'}">${s?'Create account':'Login'}</button></p>
+<p class="muted">Student demo: <b>demo1</b> / <b>demo123</b><br>Admin demo: <b>admin</b> / <b>admin123</b></p></div>`}
+function login(){const id=$('#a_id').value.trim().toLowerCase(),u=users[id];
+if(!u||u.pass!==btoa($('#a_pw').value))return toast('Wrong ID or password');me=id;save();view='feed';render()}
+function signup(){const id=$('#a_id').value.trim().toLowerCase(),name=$('#a_name').value.trim(),pw=$('#a_pw').value;
+if(!/^[\w@.+\-]{3,40}$/.test(id))return toast('ID: 3-40 chars, letters/numbers/@ . _ - +');
+if(!name||pw.length<4)return toast('Enter name and 4+ char password');if(users[id])return toast('ID already registered');
+users[id]={id,name,pass:btoa(pw),type:A.type,college:A.type=='college'?($('#a_col').value.trim()||'My College'):'',role:'student'};
+me=id;save();view='feed';render();toast('Welcome '+name)}
+function logout(){me=null;save();render()}
+
+/* FEED */
+function listHTML(){let l=issues.filter(i=>(F.cat=='all'||i.cat==F.cat)&&(F.st=='all'||i.status==F.st)&&(i.title+' '+i.loc+' '+i.desc).toLowerCase().includes(F.q.toLowerCase()));
+l.sort((a,b)=>F.sort=='votes'?b.votes.length-a.votes.length:b.t-a.t);
+return l.map(i=>`<div class="box issue" onclick="openIssue('${i.id}')"><div class="vote"><button class="${i.votes.includes(me)?'on':''}" onclick="event.stopPropagation();vote('${i.id}')">▲</button><div><b>${i.votes.length}</b></div></div>
+<div style="flex:1"><div class="row"><b>${esc(i.title)}</b><span class="tag ${cls(i.status)}">${i.status}</span></div>
+<div class="muted">📍 ${esc(i.loc)} · ${esc(i.cat)} · by ${esc(uname(i.by))} · ${date(i.t)} · 💬 ${i.comments.length}</div></div></div>`).join('')||'<p class="muted">No issues found.</p>'}
+function filt(){F.q=$('#q').value;F.cat=$('#fc').value;F.st=$('#fs').value;F.sort=$('#fo').value;$('#list').innerHTML=listHTML()}
+const vFeed=()=>`<div class="bar"><input id="q" placeholder="🔍 Search issues..." value="${esc(F.q)}" oninput="filt()">
+<select id="fc" onchange="filt()"><option value="all">All categories</option>${CATS.map(c=>`<option ${F.cat==c?'selected':''}>${c}</option>`).join('')}</select>
+<select id="fs" onchange="filt()"><option value="all">All status</option>${ST.map(c=>`<option ${F.st==c?'selected':''}>${c}</option>`).join('')}</select>
+<select id="fo" onchange="filt()"><option value="votes" ${F.sort=='votes'?'selected':''}>Most upvoted</option><option value="new" ${F.sort=='new'?'selected':''}>Newest</option></select></div><div id="list">${listHTML()}</div>`;
+function vote(id){const i=issues.find(x=>x.id==id),k=i.votes.indexOf(me);k<0?i.votes.push(me):i.votes.splice(k,1);save();filt()}
+
+/* DETAIL */
+function openIssue(id){const i=issues.find(x=>x.id==id);
+openM(`<div class="row"><h3 style="margin:0">${esc(i.title)}</h3><span class="tag ${cls(i.status)}">${i.status}</span></div>
+<p class="muted">📍 ${esc(i.loc)} · ${esc(i.cat)}<br>Reported by ${esc(uname(i.by))} on ${date(i.t)} · ▲ ${i.votes.length} votes</p><p>${esc(i.desc)||'<i>No description</i>'}</p>
+${isAdmin()?`<label>Admin: change status</label><select onchange="setSt('${i.id}',this.value)">${ST.map(s=>`<option ${i.status==s?'selected':''}>${s}</option>`).join('')}</select>`:''}
+<h4>Comments</h4>${i.comments.map(c=>`<div class="cm"><b>${esc(uname(c.f))}${users[c.f]&&users[c.f].role=='admin'?' 🛡️':''}</b>: ${esc(c.x)}<div class="muted">${date(c.t)}</div></div>`).join('')||'<p class="muted">No comments yet.</p>'}
+<div class="row" style="margin-top:8px"><input id="cmt" placeholder="Add a comment..." style="flex:1;width:auto" onkeydown="if(event.key=='Enter')addC('${i.id}')"><button onclick="addC('${i.id}')">Post</button></div>
+<div class="row" style="margin-top:10px">${(i.by==me||isAdmin())?`<button class="red" onclick="delI('${i.id}')">Delete</button>`:''}<button class="sec" onclick="closeM()">Close</button></div>`)}
+function addC(id){const v=$('#cmt').value.trim();if(!v)return;issues.find(x=>x.id==id).comments.push({f:me,x:v,t:Date.now()});save();openIssue(id)}
+function setSt(id,s){issues.find(x=>x.id==id).status=s;save();openIssue(id);toast('Status: '+s)}
+function delI(id){if(!confirm('Delete this issue?'))return;issues=issues.filter(x=>x.id!=id);save();closeM();render()}
+
+/* REPORT / MINE / STATS */
+const vAdd=()=>`<div class="box" style="max-width:520px"><h3 style="margin-top:0">Report a problem</h3>
+<label>Title</label><input id="n_t" placeholder="e.g. Fan not working in Lab 3">
+<label>Category</label><select id="n_c">${CATS.map(c=>`<option>${c}</option>`).join('')}</select>
+<label>Location</label><input id="n_l" placeholder="e.g. Block A, Room 101">
+<label>Details</label><textarea id="n_d" rows="3"></textarea><p><button onclick="addI()">Submit</button></p></div>`;
+function addI(){const t=$('#n_t').value.trim(),l=$('#n_l').value.trim();if(!t||!l)return toast('Title and location required');
+issues.push(mk(t,$('#n_c').value,l,$('#n_d').value.trim(),me,'Open',[me]));issues[issues.length-1].t=Date.now();save();view='feed';render();toast('Issue reported!')}
+const vMine=()=>{const m=issues.filter(i=>i.by==me);return `<h3>My reports</h3>`+(m.map(i=>`<div class="box issue" onclick="openIssue('${i.id}')"><div style="flex:1"><div class="row"><b>${esc(i.title)}</b><span class="tag ${cls(i.status)}">${i.status}</span></div><div class="muted">▲ ${i.votes.length} · 💬 ${i.comments.length} · ${date(i.t)}</div></div></div>`).join('')||'<p class="muted">You have not reported anything.</p>')};
+const vStats=()=>{const c=s=>issues.filter(i=>i.status==s).length,tot=issues.length||1;
+return `<h3>Dashboard</h3><div class="stats"><div class="box stat">${issues.length}<div class="muted">Total</div></div><div class="box stat" style="color:#ef4444">${c('Open')}<div class="muted">Open</div></div>
+<div class="box stat" style="color:#f59e0b">${c('In Progress')}<div class="muted">In Progress</div></div><div class="box stat" style="color:#22c55e">${c('Resolved')}<div class="muted">Resolved</div></div></div>
+<div class="box"><b>Issues by category</b>${CATS.map(k=>{const n=issues.filter(i=>i.cat==k).length;return n?`<div class="muted">${k} (${n})</div><div class="bk"><i style="width:${n/tot*100}%"></i></div>`:''}).join('')}</div>
+<div class="box"><b>Resolution rate:</b> ${Math.round(c('Resolved')/tot*100)}%</div>`};
+
+const views={feed:vFeed,add:vAdd,mine:vMine,stats:vStats};
+function render(){if(!me||!users[me]){me=null;$('#app').innerHTML=authHTML();return}
+const u=users[me],nb=(k,t)=>`<button class="${view==k?'on':''}" onclick="view='${k}';render()">${t}</button>`;
+$('#app').innerHTML=`<header><b>🛠️ CampusFix</b>${nb('feed','Issues')}${nb('add','+ Report')}${nb('mine','My Reports')}${nb('stats','Dashboard')}
+<span style="color:#cbd5e1;font-size:13px">${esc(u.name)} ${u.role=='admin'?'🛡️':u.type=='college'?'🎓':''}</span><button onclick="logout()">Logout</button></header><main>${views[view]()}</main>`}
+window.addEventListener('storage',()=>{users=L('cf_users',users);issues=L('cf_issues',issues);if(me&&$('#modal').style.display!='flex'&&!document.activeElement.matches('input,textarea,select'))render()});
+render();
+</script></body></html>
